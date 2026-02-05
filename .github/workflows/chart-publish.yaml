@@ -17,11 +17,6 @@ jobs:
         with:
           version: v3.12.0
 
-      - name: Lint Helm crd chart
-        run: helm lint ./charts/crd-chart
-      - name: Lint Helm controller chart
-        run: helm lint ./charts/chart
-
       - name: Get chart info
         id: chart
         run: |
@@ -34,6 +29,26 @@ jobs:
           CRD_CHART_VERSION=${GITHUB_REF#refs/tags/}
           echo "crd_chart_name=$CRD_CHART_NAME" >> $GITHUB_OUTPUT
           echo "crd_chart_version=$CRD_CHART_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Print Version
+        run: |
+          echo CRD_APP_VERSION:${{steps.app_version.outputs.tag}}
+          echo CRD_CHART_VERSION:${{steps.chart_version.outputs.tag}}
+          echo CONTORLLER_APP_VERSION:${{steps.app_version.outputs.tag}}
+          echo CONTORLLER_CHART_VERSION:${{steps.chart_version.outputs.tag}}
+
+      - name: Replace CHART_VERSION and APP_VERSION in charts/chart/Chart.yaml
+        run: |
+          sed -i 's/CHART_VERSION/${{ steps.chart_version.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
+          sed -i 's/APP_VERSION/${{ steps.chart_version.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
+
+      - name: Replace CHART_VERSION in charts/crd-chart/Chart.yaml
+        run: sed -i 's/CHART_VERSION/${{ steps.chart.outputs.crd_chart_version }}/g' ./charts/crd-chart/Chart.yaml
+
+      - name: Lint Helm crd chart
+        run: helm lint ./charts/crd-chart
+      - name: Lint Helm controller chart
+        run: helm lint ./charts/chart
 
       - name: Package Helm chart
         run: |
