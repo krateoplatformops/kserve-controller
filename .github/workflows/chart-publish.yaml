@@ -99,5 +99,5 @@ jobs:
         run: |
           cd gh-pages
           git add .
-          git commit -m "Publish ${{ steps.chart.outputs.chart_name }} v${{ steps.chart.outputs.chart_version }} [skip ci]"
+          git commit -m "Publish ${{ steps.chart.outputs.controller_chart_name }} v${{ steps.chart.outputs.controller_chart_version }} [skip ci]"
           git push origin gh-pages
