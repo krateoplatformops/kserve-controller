@@ -6,4 +6,4 @@ metadata:
 spec:
   predictor:
     triton:
-      storageUri: oci://ghcr.io/krateoplatformops/kserve-krateo-ttm:0.1.21
+      storageUri: oci://ghcr.io/krateoplatformops/kserve-krateo-ttm:0.1.0
