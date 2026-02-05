@@ -25,7 +25,7 @@ jobs:
           echo "controller_chart_name=$CONTROLLER_CHART_NAME" >> $GITHUB_OUTPUT
           echo "controller_chart_version=$CONTROLLER_CHART_VERSION" >> $GITHUB_OUTPUT
 
-          CRD_CHART_NAME=$(yq e '.name' charts/chart/Chart.yaml)
+          CRD_CHART_NAME=$(yq e '.name' charts/crd-chart/Chart.yaml)
           CRD_CHART_VERSION=${GITHUB_REF#refs/tags/}
           echo "crd_chart_name=$CRD_CHART_NAME" >> $GITHUB_OUTPUT
           echo "crd_chart_version=$CRD_CHART_VERSION" >> $GITHUB_OUTPUT
@@ -81,11 +81,9 @@ jobs:
         run: |
           if [ -f "gh-pages/${{ steps.chart.outputs.crd_chart_name }}-${{ steps.chart.outputs.crd_chart_version }}.tgz" ]; then
             echo "Chart already exists"
-            exit 1
           fi
           if [ -f "gh-pages/${{ steps.chart.outputs.controller_chart_name }}-${{ steps.chart.outputs.controller_chart_version }}.tgz" ]; then
             echo "Chart already exists"
-            exit 1
           fi
 
       - name: Copy chart and update index
