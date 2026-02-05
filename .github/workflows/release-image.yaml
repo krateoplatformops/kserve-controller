@@ -1,0 +1,73 @@
+name: release-image
+
+on:
+  push:
+    tags: [ '[0-9]+.[0-9]+.[0-9]+' ]
+
+env:
+  REGISTRY: ghcr.io
+  DOCKER_PUSH: true
+  LOCAL_KIND: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: kserve-controller
+            context: .
+          - image: kserve-krateo-runner
+            context: ./runners/krateo
+          - image: kserve-krateo-ttm
+            context: ./models
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+
+      - name: Login to GHCR
+        if: env.DOCKER_PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: ${{ env.DOCKER_PUSH == 'true' }}
+          load: ${{ env.LOCAL_KIND == 'true' }}
+          no-cache: ${{ env.LOCAL_KIND == 'true' }}
+
+          platforms: ${{ env.LOCAL_KIND == 'true' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+          build-args: |
+            CACHEBUST=${{ github.sha }}
+            COMMIT_HASH=${{ github.sha }}
+
+          cache-from: ${{ env.LOCAL_KIND == 'true' && '' || 'type=gha' }}
+          cache-to:   ${{ env.LOCAL_KIND == 'true' && '' || 'type=gha,mode=max' }}

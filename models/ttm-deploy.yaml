@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: kserve-krateo-ttm
+  namespace: kserve-test
+spec:
+  predictor:
+    triton:
+      storageUri: oci://ghcr.io/krateoplatformops/kserve-krateo-ttm:0.1.21

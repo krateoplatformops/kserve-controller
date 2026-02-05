@@ -1,0 +1,18 @@
+name: "granite-timeseries-ttm-r2"
+platform: "pytorch_libtorch"
+max_batch_size: 0
+input [
+  {
+    name: "past_values"
+    data_type: TYPE_FP32
+    dims: [ -1, 512, 1 ]
+  }
+]
+
+output [
+  {
+    name: "forecast_output"
+    data_type: TYPE_FP32
+    dims: [ -1, 96, -1 ]
+  }
+]

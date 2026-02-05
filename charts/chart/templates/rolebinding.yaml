@@ -1,0 +1,44 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kserve-controller.fullname" . }}-leader-election
+  labels:
+  {{- include "kserve-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "kserve-controller.fullname" . }}-leader-election'
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kserve-controller.serviceAccountName" . }}
+  namespace: '{{ .Release.Namespace }}'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kserve-controller.fullname" . }}-manager
+  labels:
+  {{- include "kserve-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "kserve-controller.fullname" . }}-manager'
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kserve-controller.serviceAccountName" . }}
+  namespace: '{{ .Release.Namespace }}'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kserve-controller.fullname" . }}-runners
+  labels:
+  {{- include "kserve-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "kserve-controller.fullname" . }}-runners'
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kserve-controller.serviceAccountName" . }}-runners
+  namespace: '{{ .Release.Namespace }}'

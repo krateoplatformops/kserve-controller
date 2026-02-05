@@ -1,0 +1,50 @@
+apiVersion: ai.krateo.io/v1
+kind: InferenceConfig
+metadata:
+  name: example-inference-config-sklearn
+  namespace: kserve-controller-system
+spec:
+  autoDeletePolicy: None
+  image: ghcr.io/krateoplatformops/kserve-krateo-runner:0.1.0
+  kserve:
+    modelName: sklearn-iris
+    modelUrl: sklearn-iris-predictor.kserve-test.svc.cluster.local/v2/models/sklearn-iris/infer
+    modelVersion: v2
+    modelInputName: input-0
+  storage:
+    input:
+      krateo:
+        api:
+          endpointRef: 
+            name: finops-database-handler-endpoint
+            namespace: kserve-controller-system
+          path: /compute/sklearninput
+          verb: POST
+          headers:
+          - 'Accept: application/json'
+          - 'Content-Type: application/json'
+    output:
+      krateo:
+        api:
+          endpointRef: 
+            name: finops-database-handler-endpoint
+            namespace: kserve-controller-system
+          path: /compute/sklearnoutput
+          verb: POST
+          headers:
+          - 'Accept: application/json'
+          - 'Content-Type: application/json'
+---
+apiVersion: ai.krateo.io/v1
+kind: InferenceRun
+metadata:
+  name: example-inference-run-sklearn
+  namespace: kserve-controller-system
+spec:
+  configRef:
+    name: example-inference-config-sklearn
+    namespace: kserve-controller-system
+  timeoutSeconds: 3600
+  parameters:
+    input_table_name: kserve_controller_input_sklearn
+    output_table_name: kserve_controller_output_sklearn

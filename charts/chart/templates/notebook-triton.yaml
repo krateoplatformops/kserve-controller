@@ -1,0 +1,151 @@
+apiVersion: finops.krateo.io/v1
+kind: Notebook
+metadata:
+  name: tritoninput
+  namespace: krateo-system
+spec: 
+  type: inline
+  inline: |
+    # The notebook is injected with additional lines of code:
+    # import sys
+    # from crate import client
+    # def eprint(*args, **kwargs):
+    #     print(*args, file=sys.stderr, **kwargs)
+    # host = sys.argv[1]
+    # port = sys.argv[2]
+    # username = sys.argv[3]
+    # password = sys.argv[4]
+    # try:
+    #     connection = client.connect(f"http://{host}:{port}", username=username, password=password)
+    #     cursor = connection.cursor()
+    # except Exception as e:
+    #     eprint('error while connecting to database' + str(e))
+    #     raise
+
+    import json
+
+    def main(table_name, data_length, column_name, key_name, key_value):
+        try:
+            resource_query = f"""
+                SELECT timestamp, {column_name}
+                FROM {table_name}
+                WHERE {key_name} = '{key_value}'
+                ORDER BY timestamp ASC
+            """
+            cursor.execute(resource_query)
+            raw_data = cursor.fetchall()
+
+            if not raw_data:
+                print(json.dumps({"result": []}))
+                return
+
+            # Extract timestamps and values
+            timestamps = [row[0] for row in raw_data]
+            values = [float(row[1]) if row[1] is not None else 0.0 for row in raw_data]
+
+            # Infer resolution (delta)
+            if len(timestamps) > 1:
+                deltas = [timestamps[i+1] - timestamps[i] for i in range(len(timestamps)-1)]
+                resolution = min(deltas)
+            else:
+                resolution = 1
+
+            # Build complete timeline with zero-filled holes
+            filled_values = []
+            current_ts = timestamps[0]
+            last_ts = timestamps[-1]
+
+            ts_to_value = dict(zip(timestamps, values))
+
+            while current_ts <= last_ts:
+                filled_values.append(ts_to_value.get(current_ts, 0.0))
+                current_ts += resolution
+
+            # Keep only the last data_length values
+            result = filled_values[-data_length:]
+
+            output = {
+                "result": [result]
+            }
+
+            print(json.dumps(output))
+        finally:
+            cursor.close()
+            connection.close()
+
+
+    if __name__ == "__main__":
+        args = {'input_table_name': '', 'input_data_length': '', 'input_table_column_name': '', 'key_name': '', 'key_value': ''}
+        for i in range(5, len(sys.argv)):
+            key_value = sys.argv[i]
+            key_value_split = str.split(key_value, '=')
+            if key_value_split[0] in args.keys():
+                args[key_value_split[0]] = key_value_split[1] if key_value_split[1] else args[key_value_split[0]]
+
+        for key in args:
+            if args[key] == '':
+                print('missing agument for call: ' + key)
+
+        main(args['input_table_name'], int(args['input_data_length']), args['input_table_column_name'], args['key_name'], args['key_value'])
+---
+apiVersion: finops.krateo.io/v1
+kind: Notebook
+metadata:
+  name: tritonoutput
+  namespace: krateo-system
+spec: 
+  type: inline
+  inline: |
+    # The notebook is injected with additional lines of code:
+    # import sys
+    # from crate import client
+    # def eprint(*args, **kwargs):
+    #     print(*args, file=sys.stderr, **kwargs)
+    # host = sys.argv[1]
+    # port = sys.argv[2]
+    # username = sys.argv[3]
+    # password = sys.argv[4]
+    # try:
+    #     connection = client.connect(f"http://{host}:{port}", username=username, password=password)
+    #     cursor = connection.cursor()
+    # except Exception as e:
+    #     eprint('error while connecting to database' + str(e))
+    #     raise
+
+    import json
+
+    def main(table_name, job_uid, predictions):
+        try:
+            preds = json.loads(predictions)
+            create_table_query = f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                jobuid TEXT,
+                prediction DOUBLE,
+                counter INT,
+                PRIMARY KEY (jobuid, prediction, counter)
+            )
+            """
+            cursor.execute(create_table_query)
+            insert_query = f"""
+            INSERT INTO {table_name} (jobuid, prediction, counter)
+            VALUES (?, ?, ?)
+            """
+            for idx, p in enumerate(preds):
+                cursor.execute(insert_query, (job_uid, float(p), idx))
+        finally:
+            cursor.close()
+            connection.close()
+
+    if __name__ == "__main__":
+        args = {'output_table_name': '', 'job_uid': '', 'predictions': ''}
+        for i in range(5, len(sys.argv)):
+            key_value = sys.argv[i]
+            key_value_split = str.split(key_value, '=')
+            if key_value_split[0] in args.keys():
+                args[key_value_split[0]] = key_value_split[1] if key_value_split[1] else args[key_value_split[0]]
+
+        for key in args:
+            if args[key] == '':
+                print('missing agument for call: ' + key)
+
+        main(args['output_table_name'], args['job_uid'], args['predictions'])
