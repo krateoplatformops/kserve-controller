@@ -32,7 +32,7 @@ jobs:
 
       - name: Print Version
         run: |
-          echo CRD_CHART_VERSION:${{steps.chart.outputs.tag}}
+          echo CRD_CHART_VERSION:${{steps.chart.outputs.crd_chart_version}}
           echo CONTORLLER_CHART_VERSION:${{steps.chart.outputs.controller_chart_version}}
 
       - name: Replace CHART_VERSION and APP_VERSION in charts/chart/Chart.yaml
