@@ -176,6 +176,7 @@ The operator can be installed through its Helm chart:
 ```sh
 helm repo add krateo https://charts.krateo.io
 helm repo update krateo
+helm install kserve-controller-crd krateo/kserve-controller-crd
 helm install kserve-controller krateo/kserve-controller
 ```
 
