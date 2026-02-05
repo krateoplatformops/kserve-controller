@@ -32,15 +32,13 @@ jobs:
 
       - name: Print Version
         run: |
-          echo CRD_APP_VERSION:${{steps.app_version.outputs.tag}}
-          echo CRD_CHART_VERSION:${{steps.chart_version.outputs.tag}}
-          echo CONTORLLER_APP_VERSION:${{steps.app_version.outputs.tag}}
-          echo CONTORLLER_CHART_VERSION:${{steps.chart_version.outputs.tag}}
+          echo CRD_CHART_VERSION:${{steps.chart.outputs.tag}}
+          echo CONTORLLER_CHART_VERSION:${{steps.chart.outputs.controller_chart_version}}
 
       - name: Replace CHART_VERSION and APP_VERSION in charts/chart/Chart.yaml
         run: |
-          sed -i 's/CHART_VERSION/${{ steps.chart_version.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
-          sed -i 's/APP_VERSION/${{ steps.chart_version.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
+          sed -i 's/CHART_VERSION/${{ steps.chart.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
+          sed -i 's/APP_VERSION/${{ steps.chart.outputs.controller_chart_version }}/g' ./charts/chart/Chart.yaml
 
       - name: Replace CHART_VERSION in charts/crd-chart/Chart.yaml
         run: sed -i 's/CHART_VERSION/${{ steps.chart.outputs.crd_chart_version }}/g' ./charts/crd-chart/Chart.yaml
