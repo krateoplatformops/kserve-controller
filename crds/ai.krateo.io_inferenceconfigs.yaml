@@ -38,6 +38,10 @@ spec:
           spec:
             properties:
               autoDeletePolicy:
+                enum:
+                - None
+                - DeleteOnSuccess
+                - DeleteOnCompletion
                 type: string
               credentialsRef:
                 properties:
@@ -75,6 +79,10 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+            required:
+            - autoDeletePolicy
+            - image
+            - storage
             type: object
           status:
             properties:

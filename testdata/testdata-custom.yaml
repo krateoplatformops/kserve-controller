@@ -1,7 +1,7 @@
 apiVersion: ai.krateo.io/v1
 kind: InferenceConfig
 metadata:
-  name: testdata-triton
+  name: testdata-custom
   namespace: kserve-test
 spec:
   autoDeletePolicy: None
@@ -24,31 +24,23 @@ spec:
           - 'Accept: application/json'
           - 'Content-Type: application/json'
     output:
-      krateo:
-        api:
+      custom:
+        s3:
           endpointRef: 
             name: finops-database-handler-endpoint
             namespace: kserve-controller-system
-          path: /compute/tritonoutput
-          verb: POST
-          headers:
-          - 'Accept: application/json'
-          - 'Content-Type: application/json'
+          moreCustom: data
 ---
 apiVersion: ai.krateo.io/v1
 kind: InferenceRun
 metadata:
-  name: testdata-triton
+  name: testdata-custom
   namespace: kserve-test
 spec:
   configRef:
-    name: testdata-triton
+    name: testdata-custom
     namespace: kserve-test
   timeoutSeconds: 3600
   parameters:
     input_table_name: azuretoolkit
-    input_table_column_name: average
-    key_name: resourceid
-    key_value: "sample-vm"
-    input_data_length: "512"
     output_table_name: kserve_controller_output_triton

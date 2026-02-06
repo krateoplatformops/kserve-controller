@@ -27,10 +27,11 @@ const (
 )
 
 type InferenceConfigSpec struct {
-	KServe           KServeSpec                 `json:"kserve,omitempty"`
-	AutoDeletePolicy *AutoDeletePolicy          `json:"autoDeletePolicy,omitempty"`
-	Storage          StorageSpec                `json:"storage,omitempty"`
-	Image            string                     `json:"image,omitempty"`
+	KServe KServeSpec `json:"kserve,omitempty"`
+	// +kubebuilder:validation:Enum=None;DeleteOnSuccess;DeleteOnCompletion
+	AutoDeletePolicy *AutoDeletePolicy          `json:"autoDeletePolicy"`
+	Storage          StorageSpec                `json:"storage"`
+	Image            string                     `json:"image"`
 	CredentialsRef   *finopsdatatypes.ObjectRef `json:"credentialsRef,omitempty"`
 }
 

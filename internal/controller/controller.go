@@ -14,6 +14,8 @@ import (
 	"github.com/krateoplatformops/provider-runtime/pkg/ratelimiter"
 	"github.com/krateoplatformops/provider-runtime/pkg/reconciler"
 	"github.com/krateoplatformops/provider-runtime/pkg/resource"
+	v1batch "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
@@ -122,6 +124,10 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (reconciler
 	}
 	log.Info(fmt.Sprintf("retrieved InferenceConfig %s", iConf.Name))
 
+	if *iConf.Spec.AutoDeletePolicy != controllerapi.AutoDeletePolicyNone && iRun.Spec.Schedule != nil {
+		log.Warn("AutoDeletePolicy is incompatible with schedule: AutoDeletePolicy will be ignored", "AutoDeletePolicy", string(*iConf.Spec.AutoDeletePolicy), "Schedule", *iRun.Spec.Schedule)
+	}
+
 	jobName := helpers.ComputeJobName(JOB_NAME_PREFIX, iRun.Name, string(iRun.UID))
 
 	contract := job.ContractSpec{
@@ -138,16 +144,22 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (reconciler
 		return reconciler.ExternalObservation{}, fmt.Errorf("unable to marshal contract to json: %w", err)
 	}
 
-	log.Debug(fmt.Sprintf("observe: InferenceRun %s computed contract", iRun.Name))
+	log.Info(fmt.Sprintf("InferenceRun %s computed contract", iRun.Name))
 	log.Debug("Contract: " + string(contractJson))
 
-	job, err := getJob(contract.JobName, iRun.Namespace)
+	job, err, cronJobExists := getJob(jobName, iRun)
 	if err != nil {
 		log.Warn(fmt.Sprintf("unable to retrieve job: %v", err))
 	}
 
 	if job != nil {
-		iRun.Status.JobStatus = &job.Status
+		iRun.Status.JobStatus = &v1.ObjectReference{
+			Kind:       job.Kind,
+			APIVersion: job.APIVersion,
+			Namespace:  job.Namespace,
+			Name:       job.Name,
+			UID:        job.UID,
+		}
 	} else {
 		iRun.Status.JobStatus = nil
 	}
@@ -155,6 +167,14 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (reconciler
 	err = updateStatus(ctx, iRun)
 	if err != nil {
 		return reconciler.ExternalObservation{}, fmt.Errorf("unable to update InferenceRun status: %w", err)
+	}
+
+	if cronJobExists {
+		log.Warn("CronJob exists, assuming everything is fine")
+		return reconciler.ExternalObservation{
+			ResourceExists:   true,
+			ResourceUpToDate: true,
+		}, nil
 	}
 
 	err = createOrUpdateConfigMap(ctx, jobName, iRun.Namespace, iRun.Status.Contract, iRun)
@@ -170,13 +190,13 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (reconciler
 		return reconciler.ExternalObservation{
 			ResourceExists: false,
 		}, nil
-	} else if status := computeJobStatus(iRun); status != "" {
+	} else if status := computeJobStatus(job); status != "" {
 		log.Info(fmt.Sprintf("%s exists with status %s", jobName, string(status)))
 		switch status {
 		case JobStatusFailed:
 			errorMessage := ""
-			if len(iRun.Status.JobStatus.Conditions) > 0 {
-				for _, cond := range iRun.Status.JobStatus.Conditions {
+			if len(job.Status.Conditions) > 0 {
+				for _, cond := range job.Status.Conditions {
 					if cond.Status == "False" {
 						errorMessage += cond.Message + "; "
 					}
@@ -193,7 +213,7 @@ func (e *external) Observe(ctx context.Context, mg resource.Managed) (reconciler
 		case JobStatusSucceeded:
 			if iRun.Status.JobStatus != nil {
 				log.Info(fmt.Sprintf("checking autoDeletePolicy for InferenceRun %s", iRun.Name))
-				if autoDeletePolicy(iConf, computeJobStatus(iRun)) {
+				if autoDeletePolicy(iConf, computeJobStatus(job)) && iRun.Spec.Schedule != nil {
 					log.Info(fmt.Sprintf("deleting InferenceRun %s for AutoDeletePolicy", iRun.Name))
 					err := deleteRun(ctx, iRun)
 					if err != nil {
@@ -248,20 +268,26 @@ func (e *external) Create(ctx context.Context, mg resource.Managed) error {
 
 	jobName := helpers.ComputeJobName(JOB_NAME_PREFIX, iRun.Name, string(iRun.UID))
 
-	err = createJob(jobName, iRun, iConf)
+	err = createJobOrCronJob(jobName, iRun, iConf)
 	if err != nil {
 		return fmt.Errorf("unable to create job: %w", err)
 	}
 
 	log.Info(fmt.Sprintf("created job %s for InferenceRun %s", jobName, iRun.Name))
 
-	job, err := getJob(jobName, iRun.Namespace)
+	job, err, _ := getJob(jobName, iRun)
 	if err != nil {
 		log.Warn(fmt.Sprintf("unable to retrieve job: %v", err))
 	}
 
 	if job != nil {
-		iRun.Status.JobStatus = &job.Status
+		iRun.Status.JobStatus = &v1.ObjectReference{
+			Kind:       job.Kind,
+			APIVersion: job.APIVersion,
+			Namespace:  job.Namespace,
+			Name:       job.Name,
+			UID:        job.UID,
+		}
 	} else {
 		iRun.Status.JobStatus = nil
 	}
@@ -287,9 +313,30 @@ func (e *external) Update(ctx context.Context, mg resource.Managed) error {
 	}
 	log.Info(fmt.Sprintf("retrieved InferenceConfig %s for %s", iConf.Name, iRun.Name))
 
+	job, err, _ := getJob(helpers.ComputeJobName(JOB_NAME_PREFIX, iRun.Name, string(iRun.UID)), iRun)
+	if err != nil {
+		log.Warn(fmt.Sprintf("unable to retrieve job: %v", err))
+	}
+
+	if job != nil {
+		iRun.Status.JobStatus = &v1.ObjectReference{
+			Kind:       job.Kind,
+			APIVersion: job.APIVersion,
+			Namespace:  job.Namespace,
+			Name:       job.Name,
+			UID:        job.UID,
+		}
+	} else {
+		iRun.Status.JobStatus = nil
+	}
+	err = updateStatus(ctx, iRun)
+	if err != nil {
+		return fmt.Errorf("unable to update InferenceRun status: %w", err)
+	}
+
 	if iRun.Status.JobStatus != nil {
 		log.Info(fmt.Sprintf("checking autoDeletePolicy for InferenceRun %s", iRun.Name))
-		if autoDeletePolicy(iConf, computeJobStatus(iRun)) {
+		if autoDeletePolicy(iConf, computeJobStatus(job)) && iRun.Spec.Schedule != nil {
 			log.Info(fmt.Sprintf("deleting InferenceRun %s for AutoDeletePolicy", iRun.Name))
 			err := deleteRun(ctx, iRun)
 			if err != nil {
@@ -324,15 +371,32 @@ func (e *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 	jobName := helpers.ComputeJobName(JOB_NAME_PREFIX, iRun.Name, string(iRun.UID))
 
+	job, err, _ := getJob(jobName, iRun)
+	if err != nil {
+		log.Warn(fmt.Sprintf("unable to retrieve job: %v", err))
+	}
+
+	if job != nil {
+		iRun.Status.JobStatus = &v1.ObjectReference{
+			Kind:       job.Kind,
+			APIVersion: job.APIVersion,
+			Namespace:  job.Namespace,
+			Name:       job.Name,
+			UID:        job.UID,
+		}
+	} else {
+		iRun.Status.JobStatus = nil
+	}
+	err = updateStatus(ctx, iRun)
+	if err != nil {
+		return fmt.Errorf("unable to update InferenceRun status: %w", err)
+	}
+
 	log.Info(fmt.Sprintf("receive delete for %s, deleting job %s", iRun.Name, jobName))
 
 	if iRun.Status.JobStatus != nil {
 		log.Info(fmt.Sprintf("checking autoDeletePolicy for InferenceRun %s", iRun.Name))
-		if autoDeletePolicy(iConf, computeJobStatus(iRun)) {
-			err = deleteJob(iRun, jobName, true)
-		} else {
-			err = deleteJob(iRun, jobName, false)
-		}
+		err = deleteJob(iRun, jobName, autoDeletePolicy(iConf, computeJobStatus(job)))
 	} else {
 		log.Warn(fmt.Sprintf("JobStatus for InferenceRun %s not available, propagation to pods for job deletion disabled", iRun.Name))
 		err = deleteJob(iRun, jobName, false)
@@ -344,14 +408,14 @@ func (e *external) Delete(ctx context.Context, mg resource.Managed) error {
 	return nil
 }
 
-func computeJobStatus(iRun *controllerapi.InferenceRun) JobStatus {
-	if iRun.Status.JobStatus.Active == 0 && iRun.Status.JobStatus.Succeeded == 0 && iRun.Status.JobStatus.Failed == 0 {
+func computeJobStatus(job *v1batch.Job) JobStatus {
+	if job.Status.Active == 0 && job.Status.Succeeded == 0 && job.Status.Failed == 0 {
 		return JobStatusPending
-	} else if iRun.Status.JobStatus.Active > 0 {
+	} else if job.Status.Active > 0 {
 		return JobStatusRunning
-	} else if iRun.Status.JobStatus.Succeeded > 0 {
+	} else if job.Status.Succeeded > 0 {
 		return JobStatusSucceeded
-	} else if iRun.Status.JobStatus.Failed > 0 {
+	} else if job.Status.Failed > 0 {
 		return JobStatusFailed
 	}
 	return JobStatusUnknown
