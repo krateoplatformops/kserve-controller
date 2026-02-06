@@ -19,21 +19,45 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func getJob(name string, namespace string) (*v1batch.Job, error) {
+func getJob(name string, iRun *controllerapi.InferenceRun) (*v1batch.Job, error, bool) {
+	jobName := name
 	config := ctrl.GetConfigOrDie()
 	if config == nil {
-		return nil, fmt.Errorf("could not get rest config")
+		return nil, fmt.Errorf("could not get rest config"), false
 	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		return nil, err, false
 	}
-	jobClient := clientset.BatchV1().Jobs(namespace)
-	job, err := jobClient.Get(context.TODO(), name, metav1.GetOptions{})
+
+	if iRun.Spec.Schedule != nil {
+		jobClient := clientset.BatchV1().CronJobs(iRun.Namespace)
+		cronjob, err := jobClient.Get(context.TODO(), jobName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err, false
+		}
+		if len(cronjob.Status.Active) > 0 {
+			jobRef := cronjob.Status.Active[0]
+			jobName = jobRef.Name
+		} else {
+			return nil, fmt.Errorf("could not get job from cronjob, nothing active"), true
+		}
+	}
+
+	jobClient := clientset.BatchV1().Jobs(iRun.Namespace)
+	job, err := jobClient.Get(context.TODO(), jobName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, err, false
 	} else {
-		return job, nil
+		return job, nil, false
+	}
+}
+
+func createJobOrCronJob(jobName string, iRun *controllerapi.InferenceRun, iConf *controllerapi.InferenceConfig) error {
+	if iRun.Spec.Schedule != nil {
+		return createCronJob(jobName, iRun, iConf)
+	} else {
+		return createJob(jobName, iRun, iConf)
 	}
 }
 
@@ -47,12 +71,6 @@ func createJob(jobName string, iRun *controllerapi.InferenceRun, iConf *controll
 		return err
 	}
 	jobClient := clientset.BatchV1().Jobs(iRun.Namespace)
-	ttlTime := ptr.To(int32(300))
-	if iConf.Spec.AutoDeletePolicy != nil {
-		if *iConf.Spec.AutoDeletePolicy == controllerapi.AutoDeletePolicyNone {
-			ttlTime = nil
-		}
-	}
 	job := &v1batch.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
@@ -60,41 +78,7 @@ func createJob(jobName string, iRun *controllerapi.InferenceRun, iConf *controll
 				*metav1.NewControllerRef(iRun, controllerapi.GroupVersion.WithKind("InferenceRun")),
 			},
 		},
-		Spec: v1batch.JobSpec{
-			Completions:             ptr.To(int32(1)),
-			TTLSecondsAfterFinished: ttlTime,
-			Template: v1.PodTemplateSpec{
-				Spec: v1.PodSpec{
-					Containers: []v1.Container{
-						{
-							Name:            "inference",
-							ImagePullPolicy: v1.PullAlways,
-							Image:           iConf.Spec.Image,
-							VolumeMounts: []v1.VolumeMount{
-								{
-									Name:      "contract",
-									MountPath: "/tmp",
-								},
-							},
-						},
-					},
-					Volumes: []v1.Volume{
-						{
-							Name: "contract",
-							VolumeSource: v1.VolumeSource{
-								ConfigMap: &v1.ConfigMapVolumeSource{
-									LocalObjectReference: v1.LocalObjectReference{
-										Name: jobName,
-									},
-								},
-							},
-						},
-					},
-					RestartPolicy:      v1.RestartPolicyNever,
-					ServiceAccountName: os.Getenv("SA_RUNNER"),
-				},
-			},
-		},
+		Spec: getJobSpec(jobName, iConf),
 	}
 	if iRun.Spec.TimeoutSeconds != 0 {
 		job.Spec.ActiveDeadlineSeconds = ptr.To(int64(iRun.Spec.TimeoutSeconds))
@@ -104,6 +88,57 @@ func createJob(jobName string, iRun *controllerapi.InferenceRun, iConf *controll
 			{
 				Name: iConf.Spec.CredentialsRef.Name,
 			},
+		}
+	}
+	if iConf.Spec.AutoDeletePolicy != nil {
+		if *iConf.Spec.AutoDeletePolicy != controllerapi.AutoDeletePolicyNone {
+			job.Spec.TTLSecondsAfterFinished = ptr.To(int32(300))
+		}
+	}
+	_, err = jobClient.Create(context.TODO(), job, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createCronJob(jobName string, iRun *controllerapi.InferenceRun, iConf *controllerapi.InferenceConfig) error {
+	config := ctrl.GetConfigOrDie()
+	if config == nil {
+		return fmt.Errorf("could not get rest config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	jobClient := clientset.BatchV1().CronJobs(iRun.Namespace)
+	job := &v1batch.CronJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: jobName,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(iRun, controllerapi.GroupVersion.WithKind("InferenceRun")),
+			},
+		},
+		Spec: v1batch.CronJobSpec{
+			Schedule: *iRun.Spec.Schedule,
+			JobTemplate: v1batch.JobTemplateSpec{
+				Spec: getJobSpec(jobName, iConf),
+			},
+		},
+	}
+	if iRun.Spec.TimeoutSeconds != 0 {
+		job.Spec.JobTemplate.Spec.ActiveDeadlineSeconds = ptr.To(int64(iRun.Spec.TimeoutSeconds))
+	}
+	if iConf.Spec.CredentialsRef != nil {
+		job.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets = []v1.LocalObjectReference{
+			{
+				Name: iConf.Spec.CredentialsRef.Name,
+			},
+		}
+	}
+	if iConf.Spec.AutoDeletePolicy != nil {
+		if *iConf.Spec.AutoDeletePolicy != controllerapi.AutoDeletePolicyNone {
+			job.Spec.JobTemplate.Spec.TTLSecondsAfterFinished = ptr.To(int32(300))
 		}
 	}
 	_, err = jobClient.Create(context.TODO(), job, metav1.CreateOptions{})
@@ -144,12 +179,17 @@ func deleteJob(iRun *controllerapi.InferenceRun, jobName string, propagate bool)
 	if err != nil {
 		return err
 	}
-	jobClient := clientset.BatchV1().Jobs(iRun.Namespace)
 	deleteOptions := metav1.DeleteOptions{}
 	if propagate {
 		deleteOptions = metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationBackground)}
 	}
-	err = jobClient.Delete(context.TODO(), jobName, deleteOptions)
+	if iRun.Spec.Schedule != nil {
+		jobClient := clientset.BatchV1().CronJobs(iRun.Namespace)
+		err = jobClient.Delete(context.TODO(), jobName, deleteOptions)
+	} else {
+		jobClient := clientset.BatchV1().Jobs(iRun.Namespace)
+		err = jobClient.Delete(context.TODO(), jobName, deleteOptions)
+	}
 	if err != nil {
 		return err
 	} else {
@@ -214,4 +254,51 @@ func deleteRun(ctx context.Context, iRun *controllerapi.InferenceRun) error {
 		return fmt.Errorf("could not delete InferenceRun status: %w", err)
 	}
 	return nil
+}
+
+func getJobSpec(jobName string, iConf *controllerapi.InferenceConfig) v1batch.JobSpec {
+	return v1batch.JobSpec{
+		Completions: ptr.To(int32(1)),
+		Template: v1.PodTemplateSpec{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name:            "inference",
+						ImagePullPolicy: v1.PullAlways,
+						Image:           iConf.Spec.Image,
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "contract",
+								MountPath: "/tmp",
+							},
+						},
+						Env: []v1.EnvVar{
+							{
+								Name: "pod_uid",
+								ValueFrom: &v1.EnvVarSource{
+									FieldRef: &v1.ObjectFieldSelector{
+										FieldPath: "metadata.uid",
+									},
+								},
+							},
+						},
+					},
+				},
+				Volumes: []v1.Volume{
+					{
+						Name: "contract",
+						VolumeSource: v1.VolumeSource{
+							ConfigMap: &v1.ConfigMapVolumeSource{
+								LocalObjectReference: v1.LocalObjectReference{
+									Name: jobName,
+								},
+							},
+						},
+					},
+				},
+				RestartPolicy:      v1.RestartPolicyNever,
+				ServiceAccountName: os.Getenv("SA_RUNNER"),
+			},
+		},
+	}
 }

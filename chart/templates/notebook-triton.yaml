@@ -114,30 +114,32 @@ spec:
 
     import json
 
-    def main(table_name, job_uid, predictions):
+    def main(table_name, job_uid, pod_uid, predictions):
         try:
             preds = json.loads(predictions)
             create_table_query = f"""
             CREATE TABLE IF NOT EXISTS {table_name} (
                 jobuid TEXT,
+                poduid TEXT,
                 prediction DOUBLE,
                 counter INT,
-                PRIMARY KEY (jobuid, prediction, counter)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (jobuid, poduid, prediction, counter)
             )
             """
             cursor.execute(create_table_query)
             insert_query = f"""
-            INSERT INTO {table_name} (jobuid, prediction, counter)
-            VALUES (?, ?, ?)
+            INSERT INTO {table_name} (jobuid, poduid, prediction, counter)
+            VALUES (?, ?, ?, ?)
             """
             for idx, p in enumerate(preds):
-                cursor.execute(insert_query, (job_uid, float(p), idx))
+                cursor.execute(insert_query, (job_uid, pod_uid, float(p), idx))
         finally:
             cursor.close()
             connection.close()
 
     if __name__ == "__main__":
-        args = {'output_table_name': '', 'job_uid': '', 'predictions': ''}
+        args = {'output_table_name': '', 'job_uid': '', 'pod_uid':'', 'predictions': ''}
         for i in range(5, len(sys.argv)):
             key_value = sys.argv[i]
             key_value_split = str.split(key_value, '=')
@@ -148,4 +150,4 @@ spec:
             if args[key] == '':
                 print('missing agument for call: ' + key)
 
-        main(args['output_table_name'], args['job_uid'], args['predictions'])
+        main(args['output_table_name'], args['job_uid'], args['pod_uid'], args['predictions'])

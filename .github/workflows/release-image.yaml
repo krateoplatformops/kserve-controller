@@ -19,8 +19,10 @@ jobs:
         include:
           - image: kserve-controller
             context: .
-          - image: kserve-krateo-runner
-            context: ./runners/krateo
+          - image: kserve-krateo-runner-ttm
+            context: ./runners/krateo-ttm
+          - image: kserve-krateo-runner-iris
+            context: ./runners/krateo-iris
           - image: kserve-krateo-ttm
             context: ./models
 
