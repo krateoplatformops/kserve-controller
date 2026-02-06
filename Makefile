@@ -15,5 +15,7 @@ container:
 
 container-multi:
 	docker buildx build --tag $(REPO)kserve-controller:$(VERSION) --push --platform linux/amd64,linux/arm64 .
-	docker buildx build --tag $(REPO)kserve-krateo-runner:$(VERSION) --push --platform linux/amd64,linux/arm64 ./runners/krateo
+	docker buildx build --tag $(REPO)kserve-krateo-runner-iris:$(VERSION) --push --platform linux/amd64,linux/arm64 ./runners/krateo-iris
+	docker buildx build --tag $(REPO)kserve-krateo-runner-ttm:$(VERSION) --push --platform linux/amd64,linux/arm64 ./runners/krateo-ttm
+	docker buildx build --tag $(REPO)kserve-krateo-runner-test:$(VERSION) --push --platform linux/amd64,linux/arm64 ./runners/test
 	docker buildx build --tag $(REPO)kserve-krateo-ttm:$(VERSION) --push --platform linux/amd64,linux/arm64 ./models

@@ -93,7 +93,7 @@ Example contract passed by the controller to the Runner, through a ConfigMap:
    }
 }
 ```
-To see how this specific contract is used, check `runners/krateo/main.go` and the counter part notebooks in `charts/chart/templates/notebook-triton.yaml`.
+To see how this specific contract is used, check `runners/krateo/main.go` and the counter part notebooks in `charts/chart/templates/notebook-triton.yaml`. Note that the runner is inject with the environment variable `pod_uid`, which might be useful to store data for scheduled inference runs.
 
 ### Extensibility via RawExtension
 
@@ -157,12 +157,13 @@ spec:
     name: example-inference-config
     namespace: kserve-controller-system
   timeoutSeconds: 3600
+  schedule: * * * * *
   parameters:
     input_table_name: kserve_controller_input
     output_table_name: kserve_controller_output
 
 ```
-The parameters are passed as is in the JSON contract.
+If the schedule field is populated, the controller creates a `CronJob` instead of a `Job`. The schedule is passed as is to the `CronJob`. The `AutoDeletePolicy` will not apply to the `CronJob`. `parameters` are passed as is in the JSON contract.
 
 ## Configuration
 
@@ -176,14 +177,14 @@ The operator can be installed through its Helm chart:
 ```sh
 helm repo add krateo https://charts.krateo.io
 helm repo update krateo
-helm install kserve-controller-crd krateo/kserve-controller-crd
-helm install kserve-controller krateo/kserve-controller
+helm template kserve-controller krateo/kserve-controller | kubectl apply -f -
 ```
 
 ### Repository Structure
 The repository contains several objects needed by the `kserve-controller`:
 - the controller code in `internal` and `api`
-- the helm charts for the controller and crd in `charts/chart` and `charts/crd-chart`
-- the Krateo runner for the finops-database-handler in `runners/krateo`
+- the helm chart for the controller with crds in `/chart`
 - the model for TTM adapted for the Triton KServe engine in `models`
+- the Krateo runners for sklearn-iris and triton-ttm for the storage finops-database-handler in `runners/krateo-iris` and `runners/krateo-ttm`
 - example CRs in `testdata`
+- e2e test code in testing `test`

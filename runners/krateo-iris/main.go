@@ -123,6 +123,7 @@ func StoreOutputData(contract ContractSpec, toStore map[string][]float32) error 
 
 	toSend := map[string]any{
 		"job_uid": contract.JobId,
+		"pod_uid": os.Getenv("pod_uid"),
 	}
 	if preds, ok := toStore["predictions"]; ok {
 		b, err := json.Marshal(preds)
@@ -164,7 +165,7 @@ func runInferenceV2(contract ContractSpec, payload [][]float32) (map[string][]fl
 		"inputs": []map[string]any{
 			{
 				"name":     contract.KServe.ModelInputName,
-				"shape":    []int{len(payload), len(payload[0]), 1},
+				"shape":    []int{len(payload), len(payload[0])},
 				"datatype": "FP32",
 				"data":     payload,
 			},
